@@ -18,7 +18,7 @@ public:
 	D3DCore(const D3DCore&);
 	~D3DCore();
 
-	bool Initialize(int, int, HWND, bool, bool, float, float);
+	bool Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsync, bool fullscreen, float screenDepth, float screenNear);
 	void Shutdown();
 
 	bool Render();

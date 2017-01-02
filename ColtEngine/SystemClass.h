@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include "InputManager.h"
 #include "GraphicsManager.h"
+#include "Camera.h"
 
 class SystemClass
 {
@@ -26,11 +27,21 @@ private:
 	HINSTANCE m_hinstance;
 	HWND m_hwnd;
 
+	// Timing related data
+	double perfCounterSeconds;
+	float totalTime;
+	float deltaTime;
+	__int64 startTime;
+	__int64 currentTime;
+	__int64 previousTime;
+
 	InputManager* m_Input;
 	GraphicsManager* m_Graphics;
+	Camera* m_Camera;
 
-	bool Frame();
-	void InitializeWindows(int&, int&);
+	void UpdateTimer();
+	bool Update();
+	void InitializeWindows(int &screenHeight, int & screenWidth);
 	void ShutdownWindows();
 };
 

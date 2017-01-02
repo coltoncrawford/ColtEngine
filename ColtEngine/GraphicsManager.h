@@ -13,9 +13,9 @@ public:
 	GraphicsManager(const GraphicsManager&);
 	~GraphicsManager();
 
-	bool Initialize(int, int, HWND);
+	bool Initialize(int screenHeight, int screenWidth, HWND hwnd);
 	void Shutdown();
-	bool Frame();
+	bool Update();
 
 private:
 	bool Render();

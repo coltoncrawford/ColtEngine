@@ -7,6 +7,8 @@
 SystemClass::SystemClass()
 {
 	m_Input = 0;
+	m_Graphics = 0;
+	m_Camera = 0;
 }
 
 SystemClass::SystemClass(const SystemClass& other)
@@ -41,6 +43,12 @@ bool SystemClass::Initialize()
 		return false;
 	}
 
+	m_Camera = new Camera();
+	if (!m_Camera)
+	{
+		return false;
+	}
+
 	// Initialize the input object
 	m_Input->Initialize();
 
@@ -59,6 +67,18 @@ void SystemClass::Shutdown()
 	{
 		delete m_Input;
 		m_Input = 0;
+	}
+
+	if (m_Graphics)
+	{
+		delete m_Graphics;
+		m_Graphics = 0;
+	}
+
+	if (m_Camera)
+	{
+		delete m_Camera;
+		m_Camera = 0;
 	}
 
 	return;
@@ -91,7 +111,7 @@ void SystemClass::Run()
 		else
 		{
 			// Otherwise do frame processing
-			result = Frame();
+			result = Update();
 			if (!result)
 			{
 				done = true;
@@ -102,7 +122,26 @@ void SystemClass::Run()
 	return;
 }
 
-bool SystemClass::Frame()
+void SystemClass::UpdateTimer()
+{
+	// Grab the current time
+	__int64 now;
+	QueryPerformanceCounter((LARGE_INTEGER*)&now);
+	currentTime = now;
+
+	// Calculate delta time and clamp to zero
+	//  - Could go negative if CPU goes into power save mode 
+	//    or the process itself gets moved to another core
+	deltaTime = max((float)((currentTime - previousTime) * perfCounterSeconds), 0.0f);
+
+	// Calculate the total time from start to now
+	totalTime = (float)((currentTime - startTime) * perfCounterSeconds);
+
+	// Save current time for next frame
+	previousTime = currentTime;
+}
+
+bool SystemClass::Update()
 {
 	bool result;
 
@@ -112,8 +151,11 @@ bool SystemClass::Frame()
 		return false;
 	}
 	
+	// Do camera update
+	m_Camera->Update(deltaTime, m_Input);
+
 	// Do the frame processing for the graphics object
-	result = m_Graphics->Frame();
+	result = m_Graphics->Update();
 	if (!result)
 	{
 		return false;

@@ -50,7 +50,7 @@ void GraphicsManager::Shutdown()
 	}
 }
 
-bool GraphicsManager::Frame()
+bool GraphicsManager::Update()
 {
 	bool result;
 
