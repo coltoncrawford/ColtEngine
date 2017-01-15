@@ -7,16 +7,14 @@
 D3DCore::D3DCore()
 {
 	m_device						= 0;
-	m_commandQueue					= 0;
+	m_deviceContext					= 0;
 	m_swapChain						= 0;
-	m_renderTargetViewHeap			= 0;
-	m_backBufferRenderTarget[0]		= 0;
-	m_backBufferRenderTarget[1]		= 0;
-	m_commandAllocator				= 0;
-	m_commandList					= 0;
-	m_pipelineState					= 0;
-	m_fence							= 0;
-	m_fenceEvent					= 0;
+	m_renderTargetView				= 0;
+	m_renderTargetView				= 0;
+	m_depthStencilBuffer			= 0;
+	m_depthStencilState				= 0;
+	m_depthStencilView				= 0;
+	m_rasterState					= 0;
 }
 
 D3DCore::D3DCore(const D3DCore &)
@@ -29,59 +27,33 @@ D3DCore::~D3DCore()
 
 bool D3DCore::Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsync, bool fullscreen, float screenDepth, float screenNear)
 {
-	D3D_FEATURE_LEVEL featureLevel;
 	HRESULT result;
-	D3D12_COMMAND_QUEUE_DESC commandQueueDesc;
-	IDXGIFactory4* factory;
+	IDXGIFactory* factory;
 	IDXGIAdapter* adapter;
 	IDXGIOutput* adapterOutput;
-	unsigned int numModes, i, numerator, denominator, renderTargetViewDescriptorSize;
+	unsigned int numModes, i, numerator, denominator;
 	unsigned long long stringLength;
 	DXGI_MODE_DESC* displayModeList;
 	DXGI_ADAPTER_DESC adapterDesc;
 	int error;
 	DXGI_SWAP_CHAIN_DESC swapChainDesc;
-	IDXGISwapChain* swapChain;
-	D3D12_DESCRIPTOR_HEAP_DESC renderTargetViewHeapDesc;
-	D3D12_CPU_DESCRIPTOR_HANDLE renderTargetViewHandle;
+	D3D_FEATURE_LEVEL featureLevel;
+	ID3D11Texture2D* backBufferPtr;
+	D3D11_TEXTURE2D_DESC depthBufferDesc;
+	D3D11_DEPTH_STENCIL_DESC depthStencilDesc;
+	D3D11_DEPTH_STENCIL_VIEW_DESC depthStencilViewDesc;
+	D3D11_RASTERIZER_DESC rasterDesc;
+	D3D11_VIEWPORT viewport;
+	float fieldOfView, screenAspect;
 
 	m_vsync_enabled = vsync;
 	m_screenDepth = screenDepth;
 	m_screenNear = screenNear;
-
-	featureLevel = D3D_FEATURE_LEVEL_12_1;
-
-	// Create the Direct3D 12 device
-	result = D3D12CreateDevice(NULL, featureLevel, __uuidof(ID3D12Device), (void**)&m_device);
-	if (FAILED(result))
-	{
-		MessageBox(hwnd, L"Could not create a DirectX 12.1 device.  The default video card does not support DirectX 12.1.", L"DirectX Device Failure", MB_OK);
-		return false;
-	}
-
-	// MARK: CREATE THE COMMAND QUEUE
-	#pragma region Create command queue
-	// Initialize the description of the command queue
-	ZeroMemory(&commandQueueDesc, sizeof(commandQueueDesc));
-
-	// Set up the description of the command queue
-	commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	commandQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-	commandQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-	commandQueueDesc.NodeMask = 0;
-
-	// Create the command queue.
-	result = m_device->CreateCommandQueue(&commandQueueDesc, __uuidof(ID3D12CommandQueue), (void**)&m_commandQueue);
-	if (FAILED(result))
-	{
-		return false;
-	}
-	#pragma endregion
 	
 	// MARK: CALCULATE REFRESH RATE
 	#pragma region Calculate refresh rate
 	// Create a DirectX graphics interface factory.
-	result = CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&factory);
+	result = CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&factory);
 	if (FAILED(result))
 	{
 		return false;
@@ -170,6 +142,9 @@ bool D3DCore::Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsyn
 	// Release the adapter
 	adapter->Release();
 	adapter = 0;
+
+	factory->Release();
+	factory = 0;
 	#pragma endregion
 	
 	// MARK: CREATE THE SWAP CHAIN
@@ -178,7 +153,7 @@ bool D3DCore::Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsyn
 	ZeroMemory(&swapChainDesc, sizeof(swapChainDesc));
 
 	// Set the swap chain to use double buffering
-	swapChainDesc.BufferCount = 2;
+	swapChainDesc.BufferCount = 1;
 
 	// Set the height and width of the back buffers in the swap chain
 	swapChainDesc.BufferDesc.Height = screenHeight;
@@ -191,20 +166,20 @@ bool D3DCore::Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsyn
 	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 
 	// Set the swap effect to discard the previous buffer contents after swapping
-	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
 	// Set the handle for the window to render to
 	swapChainDesc.OutputWindow = hwnd;
 
 	// Set to full screen or windowed mode.
-	/*if (fullscreen)
+	if (fullscreen)
 	{
 		swapChainDesc.Windowed = false;
-	}*/
-	//else
-	//{
+	}
+	else
+	{
 		swapChainDesc.Windowed = true;
-	//}
+	}
 
 	// Set the refresh rate of the back buffer
 	if(m_vsync_enabled)
@@ -229,121 +204,165 @@ bool D3DCore::Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsyn
 	// Don't set the advanced flags
 	swapChainDesc.Flags = 0;
 
-	// Finally create the swap chain using the swap chain description
-	result = factory->CreateSwapChain(m_commandQueue, &swapChainDesc, &swapChain);
-	if (FAILED(result))
-	{
-		return false;
-	}
+	featureLevel = D3D_FEATURE_LEVEL_11_0;
 
-	// Next upgrade the IDXGISwapChain to a IDXGISwapChain3 interface and store it in a private member variable named m_swapChain
-	// This will allow us to use the newer functionality such as getting the current back buffer index
-	result = swapChain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&m_swapChain);
-	if (FAILED(result))
-	{
-		return false;
-	}
+	// Actually create the swap chain and D3D objects (device, context)
+	result = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, &featureLevel, 1, D3D11_SDK_VERSION, &swapChainDesc, &m_swapChain, &m_device, NULL, &m_deviceContext);
 
-	// Clear pointer to original swap chain interface since we are using version 3 instead (m_swapChain).
-	swapChain = 0;
-
-	// Release the factory now that the swap chain has been created.
-	factory->Release();
-	factory = 0;
-	#pragma endregion
-
-	// MARK: GET RENDER TARGET VIEWS
-	#pragma region Get render target views
-	// Initialize the render target view heap description for the two back buffers
-	ZeroMemory(&renderTargetViewHeapDesc, sizeof(renderTargetViewHeapDesc));
-
-	// Set the number of descriptors to two for our two back buffers, also set the heap tyupe to render target views
-	renderTargetViewHeapDesc.NumDescriptors = 2;
-	renderTargetViewHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	renderTargetViewHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-
-	// Create the render target view heap for the back buffers
-	result = m_device->CreateDescriptorHeap(&renderTargetViewHeapDesc, __uuidof(ID3D12DescriptorHeap), (void**)&m_renderTargetViewHeap);
-	if (FAILED(result))
-	{
-		return false;
-	}
-
-	// Get a handle to the starting memory location in the render target view heap to identify where the render target views will be located for the two back buffers
-	renderTargetViewHandle = m_renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
-
-	// Get the size of the memory location for the render target view descriptors
-	renderTargetViewDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-	// Get a pointer to the first back buffer from the swap chain
-	result = m_swapChain->GetBuffer(0, __uuidof(ID3D12Resource), (void**)&m_backBufferRenderTarget[0]);
-	if (FAILED(result))
-	{
-		return false;
-	}
-
-	// Create a render target view for the first back buffer
-	m_device->CreateRenderTargetView(m_backBufferRenderTarget[0], NULL, renderTargetViewHandle);
-
-	// Increment the view handle to the next descriptor location in the render target view heap
-	renderTargetViewHandle.ptr += renderTargetViewDescriptorSize;
-
-	// Get a pointer to the second back buffer from the swap chain
-	result = m_swapChain->GetBuffer(1, __uuidof(ID3D12Resource), (void**)&m_backBufferRenderTarget[1]);
-	if (FAILED(result))
-	{
-		return false;
-	}
-
-	// Create a render target view for the second back buffer
-	m_device->CreateRenderTargetView(m_backBufferRenderTarget[1], NULL, renderTargetViewHandle);
-
-	// Finally get the initial index to which buffer is the current back buffer
-	m_bufferIndex = m_swapChain->GetCurrentBackBufferIndex();
-	#pragma endregion
-
-	// MARK: CREATE COMMAND ALLOCATOR AND LIST
-	#pragma region Create command allocator and list
-	// Create a command allocator
-	result = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator), (void**)&m_commandAllocator);
-	if (FAILED(result))
-	{
-		return false;
-	}
-	// Create a basic command list.
-	result = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator, NULL, __uuidof(ID3D12GraphicsCommandList), (void**)&m_commandList);
-	if (FAILED(result))
-	{
-		return false;
-	}
-
-	// Initially we need to close the command list during initialization as it is created in a recording state.
-	result = m_commandList->Close();
 	if (FAILED(result))
 	{
 		return false;
 	}
 	#pragma endregion
 
-	// MARK: CREATE FENCE STUFF
-	#pragma region Create fence stuff
-	// Create a fence for GPU synchronization
-	result = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&m_fence);
+	// MARK: SET UP BACK BUFFER
+	#pragma region Set up back buffer
+	// Get the pointer to the back buffer
+	result = m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backBufferPtr);
+
 	if (FAILED(result))
 	{
 		return false;
 	}
 
-	// Create an event object for the fence
-	m_fenceEvent = CreateEventEx(NULL, FALSE, FALSE, EVENT_ALL_ACCESS);
-	if (m_fenceEvent == NULL)
+	// Create the render target view with the back buffer pointer
+	result = m_device->CreateRenderTargetView(backBufferPtr, NULL, &m_renderTargetView);
+	if (FAILED(result))
 	{
 		return false;
 	}
 
-	// Initialize the starting fence value.
-	m_fenceValue = 1;
+	// Release pointer to the back buffer as we no longer need it
+	backBufferPtr->Release();
+	backBufferPtr = 0;
 	#pragma endregion
+
+	// MARK: SET UP DEPTH BUFFER, STENCIL, AND VIEW
+	#pragma region Set up depth buffer, stencil, and view
+	// Initialize the description of the depth buffer
+	ZeroMemory(&depthBufferDesc, sizeof(depthBufferDesc));
+
+	// Set up the description of the depth buffer
+	depthBufferDesc.Width = screenWidth;
+	depthBufferDesc.Height = screenHeight;
+	depthBufferDesc.MipLevels = 1;
+	depthBufferDesc.ArraySize = 1;
+	depthBufferDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	depthBufferDesc.SampleDesc.Count = 1;
+	depthBufferDesc.SampleDesc.Quality = 0;
+	depthBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+	depthBufferDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	depthBufferDesc.CPUAccessFlags = 0;
+	depthBufferDesc.MiscFlags = 0;
+
+	// Create the texture for the depth buffer using the filled out description
+	result = m_device->CreateTexture2D(&depthBufferDesc, NULL, &m_depthStencilBuffer);
+	if (FAILED(result))
+	{
+		return false;
+	}
+
+	// Initialize the description of the stencil state
+	ZeroMemory(&depthStencilDesc, sizeof(depthStencilDesc));
+
+	// Set up the description of the stencil state
+	depthStencilDesc.DepthEnable = true;
+	depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+	depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+
+	depthStencilDesc.StencilEnable = true;
+	depthStencilDesc.StencilReadMask = 0xFF;
+	depthStencilDesc.StencilWriteMask = 0xFF;
+
+	// Stencil operations if pixel is front-facing
+	depthStencilDesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+	depthStencilDesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+	depthStencilDesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+	depthStencilDesc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+	// Stencil operations if pixel is back-facing
+	depthStencilDesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+	depthStencilDesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_DECR;
+	depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+	depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+	// Create the depth stencil state
+	result = m_device->CreateDepthStencilState(&depthStencilDesc, &m_depthStencilState);
+	if (FAILED(result))
+	{
+		return false;
+	}
+	
+	// Initialize the depth stencil view
+	ZeroMemory(&depthStencilViewDesc, sizeof(depthStencilViewDesc));
+
+	// Set up the depth stencil view description
+	depthStencilViewDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	depthStencilViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+	depthStencilViewDesc.Texture2D.MipSlice = 0;
+
+	// Create the depth stencil view
+	result = m_device->CreateDepthStencilView(m_depthStencilBuffer, &depthStencilViewDesc, &m_depthStencilView);
+	if (FAILED(result))
+	{
+		return false;
+	}
+	
+	// Bind the render target view and depth stencil buffer to the output render pipeline
+	m_deviceContext->OMSetRenderTargets(1, &m_renderTargetView, m_depthStencilView);
+	#pragma endregion
+
+	// MARK: SET UP RASTERIZER
+	#pragma region Set up rasterizer
+	// Setup the raster description which will determine how and what polygons will be drawn
+	rasterDesc.AntialiasedLineEnable = false;
+	rasterDesc.CullMode = D3D11_CULL_BACK;
+	rasterDesc.DepthBias = 0;
+	rasterDesc.DepthBiasClamp = 0.0f;
+	rasterDesc.DepthClipEnable = true;
+	rasterDesc.FillMode = D3D11_FILL_SOLID;
+	rasterDesc.FrontCounterClockwise = false;
+	rasterDesc.MultisampleEnable = false;
+	rasterDesc.ScissorEnable = false;
+	rasterDesc.SlopeScaledDepthBias = 0.0f;
+
+	// Create the rasterizer state from the description
+	result = m_device->CreateRasterizerState(&rasterDesc, &m_rasterState);
+	if (FAILED(result))
+	{
+		return false;
+	}
+
+	// Set the rasterizer state
+	m_deviceContext->RSSetState(m_rasterState);
+	#pragma endregion
+
+	// MARK: SET UP VIEWPORT
+	#pragma region Set up viewport
+	// Setup the viewport for rendering
+	viewport.Width = (float)screenWidth;
+	viewport.Height = (float)screenHeight;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+	viewport.TopLeftX = 0.0f;
+	viewport.TopLeftY = 0.0f;
+
+	// Create the viewport
+	m_deviceContext->RSSetViewports(1, &viewport);
+	#pragma endregion
+
+	// Setup the projection matrix
+	fieldOfView = 3.141592654f / 4.0f;
+	screenAspect = (float)screenWidth / (float)screenHeight;
+
+	// Create the projection matrix for 3D rendering
+	m_projectionMatrix = XMMatrixPerspectiveFovLH(fieldOfView, screenAspect, screenNear, screenDepth);
+
+	// Initialize the world matrix to the identity matrix
+	m_worldMatrix = XMMatrixIdentity();
+	
+	// Create an orthographic projection matrix for 2D rendering
+	m_orthoMatrix = XMMatrixOrthographicLH((float)screenWidth, (float)screenHeight, screenNear, screenDepth);
 
 	return true;
 }
@@ -358,192 +377,132 @@ void D3DCore::Shutdown()
 		m_swapChain->SetFullscreenState(false, NULL);
 	}
 
-	// Close the object handle to the fence event
-	error = CloseHandle(m_fenceEvent);
-
-	// Release the fence.
-	if (m_fence)
-	{
-		m_fence->Release();
-		m_fence = 0;
-	}
-
-	// Release the empty pipe line state.
-	if (m_pipelineState)
-	{
-		m_pipelineState->Release();
-		m_pipelineState = 0;
-	}
-
-	// Release the command list.
-	if (m_commandList)
-	{
-		m_commandList->Release();
-		m_commandList = 0;
-	}
-
-	// Release the command allocator.
-	if (m_commandAllocator)
-	{
-		m_commandAllocator->Release();
-		m_commandAllocator = 0;
-	}
-
-	// Release the back buffer render target views.
-	if (m_backBufferRenderTarget[0])
-	{
-		m_backBufferRenderTarget[0]->Release();
-		m_backBufferRenderTarget[0] = 0;
-	}
-	if (m_backBufferRenderTarget[1])
-	{
-		m_backBufferRenderTarget[1]->Release();
-		m_backBufferRenderTarget[1] = 0;
-	}
-
-	// Release the render target view heap.
-	if (m_renderTargetViewHeap)
-	{
-		m_renderTargetViewHeap->Release();
-		m_renderTargetViewHeap = 0;
-	}
-
-	// Release the swap chain.
+	// Release the swap chain
 	if (m_swapChain)
 	{
 		m_swapChain->Release();
 		m_swapChain = 0;
 	}
 
-	// Release the command queue.
-	if (m_commandQueue)
-	{
-		m_commandQueue->Release();
-		m_commandQueue = 0;
-	}
-
-	// Release the device.
+	// Release the device
 	if (m_device)
 	{
 		m_device->Release();
 		m_device = 0;
 	}
 
+	// Release the context
+	if (m_deviceContext)
+	{
+		m_deviceContext->Release();
+		m_deviceContext = 0;
+	}
+
+	// Release the rasterizer
+	if (m_rasterState)
+	{
+		m_rasterState->Release();
+		m_rasterState = 0;
+	}
+
+	// Release the depth stuff
+	if (m_depthStencilView)
+	{
+		m_depthStencilView->Release();
+		m_depthStencilView = 0;
+	}
+
+	if (m_depthStencilState)
+	{
+		m_depthStencilState->Release();
+		m_depthStencilState = 0;
+	}
+
+	if (m_depthStencilBuffer)
+	{
+		m_depthStencilBuffer->Release();
+		m_depthStencilBuffer = 0;
+	}
+
+	// Release the render target view
+	if (m_renderTargetView)
+	{
+		m_renderTargetView->Release();
+		m_renderTargetView = 0;
+	}
+
 	return;
 }
 
-bool D3DCore::Render()
+void D3DCore::BeginScene(float r, float g, float b, float a)
 {
-	HRESULT result;
-	D3D12_RESOURCE_BARRIER barrier;
-	D3D12_CPU_DESCRIPTOR_HANDLE renderTargetViewHandle;
-	unsigned int renderTargetViewDescriptorSize;
 	float color[4];
-	ID3D12CommandList* ppCommandLists[1];
-	unsigned long long fenceToWaitFor;
-	
-	// Reset (re-use) the memory associated command allocator
-	result = m_commandAllocator->Reset();
-	if (FAILED(result))
-	{
-		return false;
-	}
 
-	// Reset the command list, use empty pipeline state for now since there are no shaders and we are just clearing the screen
-	result = m_commandList->Reset(m_commandAllocator, m_pipelineState);
-	if (FAILED(result))
-	{
-		return false;
-	}
+	// Setup the color to clear the buffer to
+	color[0] = r;
+	color[1] = g;
+	color[2] = b;
+	color[3] = a;
 
-	// Record commands in the command list now
-	// Start by setting the resource barrier
-	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-	barrier.Transition.pResource = m_backBufferRenderTarget[m_bufferIndex];
-	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	m_commandList->ResourceBarrier(1, &barrier);
+	// Clear the back buffer.
+	m_deviceContext->ClearRenderTargetView(m_renderTargetView, color);
 
-	// Get the render target view handle for the current back buffer
-	renderTargetViewHandle = m_renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
-	renderTargetViewDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	if (m_bufferIndex == 1)
-	{
-		renderTargetViewHandle.ptr += renderTargetViewDescriptorSize;
-	}
+	// Clear the depth buffer.
+	m_deviceContext->ClearDepthStencilView(m_depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-	// Set the back buffer as the render target
-	m_commandList->OMSetRenderTargets(1, &renderTargetViewHandle, FALSE, NULL);
+	return;
+}
 
-	// Then set the color to clear the window to
-	color[0] = 0.39;
-	color[1] = 0.61;
-	color[2] = 0.93;
-	color[3] = 1.0;
-	m_commandList->ClearRenderTargetView(renderTargetViewHandle, color, 0, NULL);
-
-	// Indicate that the back buffer will now be used to present
-	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-	m_commandList->ResourceBarrier(1, &barrier);
-
-	// Close the list of commands
-	result = m_commandList->Close();
-	if (FAILED(result))
-	{
-		return false;
-	}
-
-	// Load the command list array
-	ppCommandLists[0] = m_commandList;
-
-	// Execute the list of commands
-	m_commandQueue->ExecuteCommandLists(1, ppCommandLists);
-
-	// Finally present the back buffer to the screen since rendering is complete
+void D3DCore::EndScene()
+{
+	// Present the back buffer to the screen since rendering is complete
 	if (m_vsync_enabled)
 	{
 		// Lock to screen refresh rate
-		result = m_swapChain->Present(1, 0);
-		if (FAILED(result))
-		{
-			return false;
-		}
+		m_swapChain->Present(1, 0);
 	}
 	else
 	{
 		// Present as fast as possible
-		result = m_swapChain->Present(0, 0);
-		if (FAILED(result))
-		{
-			return false;
-		}
+		m_swapChain->Present(0, 0);
 	}
 
-	// Signal and increment the fence value
-	fenceToWaitFor = m_fenceValue;
-	result = m_commandQueue->Signal(m_fence, fenceToWaitFor);
-	if (FAILED(result))
-	{
-		return false;
-	}
-	m_fenceValue++;
+	return;
+}
 
-	// Wait until the GPU is done rendering
-	if (m_fence->GetCompletedValue() < fenceToWaitFor)
-	{
-		result = m_fence->SetEventOnCompletion(fenceToWaitFor, m_fenceEvent);
-		if (FAILED(result))
-		{
-			return false;
-		}
-		WaitForSingleObject(m_fenceEvent, INFINITE);	// Could change from infinite to something else
-	}
+ID3D11Device * D3DCore::GetDevice()
+{
+	return m_device;
+}
 
-	// Alternate the back buffer index back and forth between 0 and 1 each frame
-	m_bufferIndex == 0 ? m_bufferIndex = 1 : m_bufferIndex = 0;
+ID3D11DeviceContext * D3DCore::GetContext()
+{
+	return m_deviceContext;
+}
 
-	return true;
+void D3DCore::GetProjectionMatrix(XMMATRIX& projectionMatrix)
+{
+	projectionMatrix = m_projectionMatrix;
+	return;
+}
+
+
+void D3DCore::GetWorldMatrix(XMMATRIX& worldMatrix)
+{
+	worldMatrix = m_worldMatrix;
+	return;
+}
+
+
+void D3DCore::GetOrthoMatrix(XMMATRIX& orthoMatrix)
+{
+	orthoMatrix = m_orthoMatrix;
+	return;
+}
+
+void D3DCore::GetVideoCardInfo(char* cardName, int& memory)
+{
+	strcpy_s(cardName, 128, m_videoCardDescription);
+	memory = m_videoCardMemory;
+	return;
 }
