@@ -54,6 +54,9 @@ bool GraphicsManager::Update()
 {
 	bool result;
 
+	// Maybe sort objects here first, then continue, or not
+	// not sure which would be best
+
 	// Render the scene
 	result = Render();
 	if (!result)
@@ -67,8 +70,13 @@ bool GraphicsManager::Update()
 bool GraphicsManager::Render()
 {
 	// Clear the buffers to begin the scene
-	m_Direct3D->BeginScene(0.5f, 0.5f, 0.5f, 1.0f);
-	
+	m_Direct3D->BeginScene(0.4f, 0.6f, 0.75f, 0.0f);
+
+	// pass in entity list / any other objects that need to be drawn (skybox, etc.)
+	// sort through entities for optimized rendering / draw in correct order
+	// loop through what needs to be drawn setting the proper materials/shaders/etc. only when needed
+	// context->drawindexed
+
 	// Present the rendered scene to the screen
 	m_Direct3D->EndScene();
 
