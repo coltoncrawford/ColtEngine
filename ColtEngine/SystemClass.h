@@ -15,7 +15,7 @@ public:
 	LRESULT CALLBACK MessageHandler(HWND, UINT, WPARAM, LPARAM);
 
 	SystemClass();
-	SystemClass(const SystemClass&);
+	SystemClass(const SystemClass& other);
 	~SystemClass();
 
 	bool Initialize();

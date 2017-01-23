@@ -13,7 +13,7 @@ Camera::Camera()
 	speed = 10.0f;
 }
 
-Camera::Camera(const Camera &)
+Camera::Camera(const Camera& other)
 {
 }
 

@@ -17,7 +17,7 @@ D3DCore::D3DCore()
 	m_rasterState					= 0;
 }
 
-D3DCore::D3DCore(const D3DCore &)
+D3DCore::D3DCore(const D3DCore& other)
 {
 }
 

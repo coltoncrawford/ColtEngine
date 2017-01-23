@@ -7,9 +7,10 @@
 GraphicsManager::GraphicsManager()
 {
 	m_Direct3D = 0;
+	m_TextureShader = 0;
 }
 
-GraphicsManager::GraphicsManager(const GraphicsManager &)
+GraphicsManager::GraphicsManager(const GraphicsManager& other)
 {
 }
 
@@ -36,6 +37,21 @@ bool GraphicsManager::Initialize(int screenHeight, int screenWidth, HWND hwnd)
 		return false;
 	}
 
+	// Create the texture shader
+	m_TextureShader = new TextureShader();
+	if (!m_TextureShader)
+	{
+		return false;
+	}
+
+	// Initialize the texture shader
+	result = m_TextureShader->Initialize(m_Direct3D->GetDevice(), hwnd);
+	if (!result)
+	{
+		MessageBox(hwnd, L"Could not initialize the texture shader object.", L"Error", MB_OK);
+		return false;
+	}
+
 	return true;
 }
 
@@ -47,6 +63,14 @@ void GraphicsManager::Shutdown()
 		m_Direct3D->Shutdown();
 		delete m_Direct3D;
 		m_Direct3D = 0;
+	}
+	
+	// Release the color shader object.
+	if (m_TextureShader)
+	{
+		m_TextureShader->Shutdown();
+		delete m_TextureShader;
+		m_TextureShader = 0;
 	}
 }
 

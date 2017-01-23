@@ -4,6 +4,7 @@
 
 #include <windows.h>
 #include "D3DCore.h"
+#include "TextureShader.h"
 #pragma once
 
 class GraphicsManager
@@ -21,5 +22,6 @@ private:
 	bool Render();
 
 	D3DCore* m_Direct3D;
+	TextureShader* m_TextureShader;
 };
 

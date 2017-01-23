@@ -6,7 +6,6 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-// Need to change target platform to Windows 10 for DX12
 #include <d3d11.h>
 #include <directxmath.h>
 #pragma once
@@ -17,7 +16,7 @@ class D3DCore
 {
 public:
 	D3DCore();
-	D3DCore(const D3DCore&);
+	D3DCore(const D3DCore& other);
 	~D3DCore();
 
 	bool Initialize(int screenHeight, int screenWidth, HWND hwnd, bool vsync, bool fullscreen, float screenDepth, float screenNear);

@@ -33,20 +33,11 @@ VertexToPixel main(VertexShaderInput input)
 	// Set up output struct
 	VertexToPixel output;
 
-	// The vertex's position (input.position) must be converted to world space,
-	// then camera space (relative to our 3D camera), then to proper homogenous 
-	// screen-space coordinates.  This is taken care of by our world, view and
-	// projection matrices.  
-	//
-	// First we multiply them together to get a single matrix which represents
-	// all of those transformations (world to view to projection space)
+	// Convert the vertex's position to world then camera then screen space coords by calculating the world * view * projection matrix
 	matrix worldViewProj = mul(mul(world, view), projection);
 
-	// Then we convert our 3-component position vector to a 4-component vector
-	// and multiply it by our final 4x4 matrix.
-	//
-	// The result is essentially the position (XY) of the vertex on our 2D 
-	// screen and the distance (Z) from the camera (the "depth" of the pixel)
+	// Then convert the position to a 4-component vector to multiply it by our new matrix
+	// Screen coords are X,Y and distance from camera (depth) is Z
 	output.position = mul(float4(input.position, 1.0f), worldViewProj);
 
 	// Pass the color through 
@@ -60,7 +51,6 @@ VertexToPixel main(VertexShaderInput input)
 	// Pass the UVs through
 	output.uv = input.uv;
 
-	// Whatever we return will make its way through the pipeline to the
-	// next programmable stage we're using
+	// Whatever we return will make its way through the pipeline to the next programmable stage we're using
 	return output;
 }

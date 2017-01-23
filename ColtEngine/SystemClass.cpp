@@ -155,7 +155,8 @@ bool SystemClass::Update()
 	m_Camera->Update(deltaTime, m_Input);
 
 	// Do the frame processing for the graphics object
-	result = m_Graphics->Update(); // This is the draw call, make sure eveything is updated before this point
+	// might need to pass in camera matrix
+	result = m_Graphics->Update(); // From this point everything will draw, make sure eveything is updated before this point
 	if (!result)
 	{
 		return false;

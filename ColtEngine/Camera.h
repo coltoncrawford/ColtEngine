@@ -13,7 +13,7 @@ class Camera
 {
 public:
 	Camera();
-	Camera(const Camera&);
+	Camera(const Camera& other);
 	~Camera();
 
 	XMFLOAT4X4 GetViewMatrix();
